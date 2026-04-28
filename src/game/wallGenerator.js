@@ -1,151 +1,191 @@
 /**
  * QWER Climb - Wall Generator
- * 볼더링 벽과 홀드를 생성합니다.
+ * 시작 구간은 넉넉하고 위로 갈수록 드문 홀드 구성을 만듭니다.
  */
 
-import { HOLD_TYPES, WALL_MARGIN_X, CANVAS_WIDTH, DIFFICULTY } from './constants.js';
-import { randInt, randFloat, weightedRandom } from '../utils/helpers.js';
+import { CANVAS_WIDTH, DIFFICULTY, HOLD_TYPES, WALL_MARGIN_X } from './constants.js';
+import { randFloat, randInt, weightedRandom } from '../utils/helpers.js';
 
-/**
- * 벽에 배치할 홀드 배열을 생성합니다.
- * @param {string} difficultyKey - 'EASY', 'NORMAL', 'HARD'
- * @returns {{ holds: Array, wallHeight: number, goalY: number }}
- */
 export function generateWall(difficultyKey) {
   const diff = DIFFICULTY[difficultyKey] || DIFFICULTY.NORMAL;
-  const holdCount = randInt(diff.holdCount.min, diff.holdCount.max);
   const wallHeight = diff.wallHeight;
   const holds = [];
-
   const wallLeft = WALL_MARGIN_X;
   const wallRight = CANVAS_WIDTH - WALL_MARGIN_X;
   const wallWidth = wallRight - wallLeft;
-
-  // 시작 홀드 4개 (캐릭터 초기 위치용, 하단)
-  const startY = wallHeight - 40;
-  const startSpacing = wallWidth / 5;
-  
-  // 왼발/오른발 시작
-  holds.push(createHold(wallLeft + startSpacing * 1.5, startY, 'GREEN', holds.length));
-  holds.push(createHold(wallLeft + startSpacing * 3.5, startY, 'GREEN', holds.length));
-  // 왼손/오른손 시작 (발보다 약간 위)
-  holds.push(createHold(wallLeft + startSpacing * 1.2, startY - 70, 'GREEN', holds.length));
-  holds.push(createHold(wallLeft + startSpacing * 3.8, startY - 70, 'GREEN', holds.length));
-
-  // 골 홀드 (꼭대기)
+  const startY = wallHeight - 55;
   const goalY = 60;
-  holds.push(createHold(wallLeft + wallWidth * 0.3, goalY, 'PURPLE', holds.length));
-  holds.push(createHold(wallLeft + wallWidth * 0.7, goalY, 'PURPLE', holds.length));
 
-  // 중간 홀드 랜덤 생성 (경로가 연결되도록)
-  const midHoldCount = holdCount - 6;
-  const sectionHeight = (startY - 80 - goalY - 40) / midHoldCount;
-
-  for (let i = 0; i < midHoldCount; i++) {
-    const baseY = goalY + 60 + i * sectionHeight;
-    const y = baseY + randFloat(-sectionHeight * 0.3, sectionHeight * 0.3);
-    const x = wallLeft + 30 + randFloat(0, wallWidth - 60);
-
-    const typeKey = weightedRandom(diff.holdTypes);
-    holds.push(createHold(x, y, typeKey, holds.length));
-  }
-
-  // 연결성 보장: 각 홀드에서 150px 이내에 다른 홀드가 있는지 확인
-  // 부족하면 중간에 추가
-  ensureConnectivity(holds, wallLeft, wallRight, goalY, startY, diff);
+  createStartCluster(holds, wallLeft, wallWidth, startY);
+  createBottomSupport(holds, wallLeft, wallWidth, wallHeight, diff);
+  createClimbZones(holds, wallLeft, wallWidth, wallHeight, goalY, diff);
+  ensureBottomMobility(holds, wallHeight, diff);
+  addGoalHolds(holds, wallLeft, wallWidth, goalY);
 
   return {
     holds,
     wallHeight,
     goalY,
-    startHolds: { 
-      leftFoot: 0, 
-      rightFoot: 1, 
-      leftHand: 2, 
-      rightHand: 3 
+    startHolds: {
+      leftFoot: 0,
+      rightFoot: 1,
+      leftHand: 2,
+      rightHand: 3,
     },
   };
 }
 
-/**
- * 튜토리얼용 간단한 벽 생성
- */
 export function generateTutorialWall() {
   const holds = [];
-  const wallHeight = 700;
-  const startY = wallHeight - 40;
+  const wallHeight = 760;
   const goalY = 60;
+  const startY = wallHeight - 55;
 
-  // 시작 위치
-  holds.push(createHold(280, startY, 'GREEN', 0));       // 왼발
-  holds.push(createHold(520, startY, 'GREEN', 1));       // 오른발
-  holds.push(createHold(260, startY - 70, 'GREEN', 2));  // 왼손
-  holds.push(createHold(540, startY - 70, 'GREEN', 3));  // 오른손
+  createStartCluster(holds, WALL_MARGIN_X, CANVAS_WIDTH - WALL_MARGIN_X * 2, startY);
 
-  // 경로 - 간단하고 직선적으로
-  const pathHolds = [
-    { x: 300, y: startY - 150, type: 'GREEN' },
-    { x: 500, y: startY - 170, type: 'GREEN' },
-    { x: 250, y: startY - 240, type: 'BLUE' },
-    { x: 480, y: startY - 260, type: 'GREEN' },
-    { x: 350, y: startY - 320, type: 'GREEN' },
-    { x: 520, y: startY - 350, type: 'BLUE' },
-    { x: 280, y: startY - 400, type: 'GREEN' },
-    { x: 450, y: startY - 430, type: 'GREEN' },
-    { x: 350, y: startY - 490, type: 'PURPLE' },
-    { x: 500, y: startY - 510, type: 'GREEN' },
-    { x: 300, y: startY - 560, type: 'GREEN' },
-    { x: 450, y: startY - 590, type: 'GREEN' },
+  const tutorialHolds = [
+    { x: 280, y: startY - 80, type: 'GREEN' },
+    { x: 360, y: startY - 115, type: 'GREEN' },
+    { x: 460, y: startY - 95, type: 'GREEN' },
+    { x: 530, y: startY - 145, type: 'BLUE' },
+    { x: 320, y: startY - 190, type: 'GREEN' },
+    { x: 420, y: startY - 220, type: 'BLUE' },
+    { x: 520, y: startY - 255, type: 'GREEN' },
+    { x: 360, y: startY - 310, type: 'GREEN' },
+    { x: 500, y: startY - 360, type: 'PURPLE' },
+    { x: 310, y: startY - 430, type: 'GREEN' },
+    { x: 460, y: startY - 470, type: 'GREEN' },
+    { x: 380, y: startY - 540, type: 'PURPLE' },
   ];
 
-  pathHolds.forEach(h => {
-    holds.push(createHold(h.x, h.y, h.type, holds.length));
+  tutorialHolds.forEach((hold) => {
+    holds.push(createHold(hold.x, hold.y, hold.type, holds.length));
   });
 
-  // 골
-  holds.push(createHold(350, goalY, 'PURPLE', holds.length));
-  holds.push(createHold(450, goalY, 'PURPLE', holds.length));
+  addGoalHolds(holds, WALL_MARGIN_X, CANVAS_WIDTH - WALL_MARGIN_X * 2, goalY);
 
   return {
     holds,
     wallHeight,
     goalY,
-    startHolds: { leftFoot: 0, rightFoot: 1, leftHand: 2, rightHand: 3 },
+    startHolds: {
+      leftFoot: 0,
+      rightFoot: 1,
+      leftHand: 2,
+      rightHand: 3,
+    },
   };
 }
 
-/** 홀드 객체 생성 */
+function createStartCluster(holds, wallLeft, wallWidth, startY) {
+  const baseX = wallLeft + wallWidth * 0.5;
+  const startLayout = [
+    { x: baseX - 120, y: startY, type: 'GREEN' },
+    { x: baseX + 120, y: startY, type: 'GREEN' },
+    { x: baseX - 110, y: startY - 72, type: 'GREEN' },
+    { x: baseX + 110, y: startY - 72, type: 'GREEN' },
+    { x: baseX - 10, y: startY - 30, type: 'GREEN' },
+    { x: baseX - 170, y: startY - 28, type: 'BLUE' },
+    { x: baseX + 170, y: startY - 28, type: 'BLUE' },
+    { x: baseX - 70, y: startY - 120, type: 'GREEN' },
+    { x: baseX + 70, y: startY - 120, type: 'GREEN' },
+    { x: baseX, y: startY - 165, type: 'BLUE' },
+  ];
+
+  startLayout.forEach((hold) => {
+    holds.push(createHold(hold.x, hold.y, hold.type, holds.length));
+  });
+}
+
+function createBottomSupport(holds, wallLeft, wallWidth, wallHeight, diff) {
+  const zoneTop = wallHeight * 0.75;
+  const extraCount = randInt(6, 9);
+
+  for (let i = 0; i < extraCount; i++) {
+    const x = wallLeft + 35 + randFloat(0, wallWidth - 70);
+    const y = randFloat(zoneTop, wallHeight - 150);
+    const type = weightedRandom(diff.zoneWeights.bottom);
+    holds.push(createHold(x, y, type, holds.length));
+  }
+}
+
+function createClimbZones(holds, wallLeft, wallWidth, wallHeight, goalY, diff) {
+  const totalTarget = randInt(diff.holdCount.min, diff.holdCount.max);
+  const remaining = Math.max(0, totalTarget - holds.length - 2);
+
+  const bottomCount = Math.floor(remaining * 0.35);
+  const middleCount = Math.floor(remaining * 0.42);
+  const topCount = remaining - bottomCount - middleCount;
+
+  const zones = [
+    { count: bottomCount, yMin: wallHeight * 0.58, yMax: wallHeight * 0.75, weights: diff.zoneWeights.bottom, spacing: { min: 52, max: 86 } },
+    { count: middleCount, yMin: wallHeight * 0.25, yMax: wallHeight * 0.58, weights: diff.zoneWeights.middle, spacing: { min: 74, max: 118 } },
+    { count: topCount, yMin: goalY + 70, yMax: wallHeight * 0.25, weights: diff.zoneWeights.top, spacing: diff.topSpacing },
+  ];
+
+  zones.forEach((zone) => {
+    const ys = distributeY(zone.count, zone.yMin, zone.yMax, zone.spacing.min, zone.spacing.max);
+    ys.forEach((y) => {
+      const x = wallLeft + 28 + randFloat(0, wallWidth - 56);
+      const type = weightedRandom(zone.weights);
+      holds.push(createHold(x, y, type, holds.length));
+    });
+  });
+}
+
+function addGoalHolds(holds, wallLeft, wallWidth, goalY) {
+  holds.push(createHold(wallLeft + wallWidth * 0.32, goalY, 'PURPLE', holds.length));
+  holds.push(createHold(wallLeft + wallWidth * 0.68, goalY, 'PURPLE', holds.length));
+}
+
+function ensureBottomMobility(holds, wallHeight, diff) {
+  const bottomBand = holds
+    .filter((hold) => hold.y >= wallHeight * 0.68)
+    .sort((a, b) => b.y - a.y);
+
+  for (let i = 0; i < bottomBand.length - 1; i++) {
+    const current = bottomBand[i];
+    const next = bottomBand[i + 1];
+    const dist = Math.hypot(current.x - next.x, current.y - next.y);
+    if (dist > 130) {
+      holds.push(createHold(
+        (current.x + next.x) / 2,
+        (current.y + next.y) / 2,
+        weightedRandom(diff.zoneWeights.bottom),
+        holds.length
+      ));
+    }
+  }
+}
+
 function createHold(x, y, typeKey, index) {
-  const type = HOLD_TYPES[typeKey];
   return {
     id: index,
     x: Math.round(x),
     y: Math.round(y),
-    type,
+    type: HOLD_TYPES[typeKey],
     typeKey,
-    grabbed: false,       // 현재 잡혀 있는지
-    grabbedBy: null,      // 어떤 팔다리가 잡고 있는지
-    visited: false,       // 한번이라도 잡혔는지
-    shapeVariant: randInt(0, 3), // 홀드 모양 변형
+    grabbed: false,
+    grabbedBy: null,
+    visited: false,
+    shapeVariant: randInt(0, 3),
     rotation: randFloat(-0.3, 0.3),
   };
 }
 
-/** 연결성 보장 - 고립된 구간에 홀드 추가 */
-function ensureConnectivity(holds, wallLeft, wallRight, goalY, startY, diff) {
-  const maxGap = 160;
-  
-  // Y축 기준으로 정렬해서 갭 확인
-  const sorted = [...holds].sort((a, b) => a.y - b.y);
-  
-  for (let i = 0; i < sorted.length - 1; i++) {
-    const gap = sorted[i + 1].y - sorted[i].y;
-    if (Math.abs(gap) > maxGap) {
-      // 중간에 홀드 추가
-      const midY = (sorted[i].y + sorted[i + 1].y) / 2;
-      const midX = wallLeft + 40 + randFloat(0, wallRight - wallLeft - 80);
-      const typeKey = weightedRandom(diff.holdTypes);
-      holds.push(createHold(midX, midY, typeKey, holds.length));
+function distributeY(count, yMin, yMax, spacingMin, spacingMax) {
+  if (count <= 0) return [];
+
+  const values = [];
+  let current = yMax;
+
+  for (let i = 0; i < count; i++) {
+    values.push(current);
+    current -= randFloat(spacingMin, spacingMax);
+    if (current < yMin) {
+      current = randFloat(yMin, yMax);
     }
   }
+
+  return values;
 }

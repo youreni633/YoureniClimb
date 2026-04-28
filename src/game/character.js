@@ -1,260 +1,453 @@
 /**
- * QWER Climb - Character (캐릭터 시스템)
- * 캐릭터의 위치, 팔다리 상태, 물리 연산을 관리합니다.
+ * QWER Climb - Character
+ * 캐릭터의 팔다리 상태, 직접 조작, 다이노 움직임을 관리합니다.
  */
 
-import { CHARACTER, TENSION, LIMB } from './constants.js';
-import { distance, clamp, lerp, wobble } from '../utils/helpers.js';
+import { CHARACTER, DYNAMICS, DYNO, LIMB_IDS, TENSION } from './constants.js';
+import { clamp, distance, lerp, wobble } from '../utils/helpers.js';
+
+const HANDS = ['leftHand', 'rightHand'];
+const FEET = ['leftFoot', 'rightFoot'];
 
 export class Character {
   constructor() {
     this.reset();
   }
 
-  /** 캐릭터 초기화 */
   reset() {
-    // 각 팔다리 위치 (홀드에 부착될 때 해당 홀드 좌표가 들어감)
     this.limbs = {
-      leftHand:  { x: 0, y: 0, holdId: null, startX: 0, startY: 0, targetX: 0, targetY: 0, animProgress: 1 },
-      rightHand: { x: 0, y: 0, holdId: null, startX: 0, startY: 0, targetX: 0, targetY: 0, animProgress: 1 },
-      leftFoot:  { x: 0, y: 0, holdId: null, startX: 0, startY: 0, targetX: 0, targetY: 0, animProgress: 1 },
-      rightFoot: { x: 0, y: 0, holdId: null, startX: 0, startY: 0, targetX: 0, targetY: 0, animProgress: 1 },
+      leftHand: this._createLimb(),
+      rightHand: this._createLimb(),
+      leftFoot: this._createLimb(),
+      rightFoot: this._createLimb(),
     };
 
-    // 몸통 위치 (팔다리 중심에서 자동 계산)
     this.bodyX = 0;
     this.bodyY = 0;
-
-    // 머리 위치
     this.headX = 0;
     this.headY = 0;
 
-    // 긴장도
     this.tension = 0;
-
-    // 상태
     this.isFalling = false;
     this.fallVelocity = 0;
     this.fallY = 0;
-
-    // 우스꽝스러운 효과용 타이머
     this.wobbleTime = 0;
-    this.stretchFactor = 0; // 0~1, 1이면 최대 스트레치
+    this.stretchFactor = 0;
+    this.badPosture = false;
+
+    this.controlledLimb = null;
+    this.lastReleasedLimb = null;
+
+    this.dyno = {
+      charging: false,
+      active: false,
+      direction: { x: 0, y: -1 },
+      power: 0,
+      timer: 0,
+      velocityX: 0,
+      velocityY: 0,
+    };
   }
 
-  /**
-   * 시작 홀드에 캐릭터 배치
-   * @param {Object} startHolds - { leftFoot, rightFoot, leftHand, rightHand } 홀드 인덱스
-   * @param {Array} holds - 홀드 배열
-   */
+  _createLimb() {
+    return {
+      x: 0,
+      y: 0,
+      holdId: null,
+      startX: 0,
+      startY: 0,
+      targetX: 0,
+      targetY: 0,
+      animProgress: 1,
+      releasedX: 0,
+      releasedY: 0,
+      isControlled: false,
+      isDangling: false,
+    };
+  }
+
   initPosition(startHolds, holds) {
     const lf = holds[startHolds.leftFoot];
     const rf = holds[startHolds.rightFoot];
     const lh = holds[startHolds.leftHand];
     const rh = holds[startHolds.rightHand];
 
-    // 초기 위치는 즉시 설정 (애니메이션 없이)
     this._setLimbImmediate('leftFoot', lf);
     this._setLimbImmediate('rightFoot', rf);
     this._setLimbImmediate('leftHand', lh);
     this._setLimbImmediate('rightHand', rh);
 
-    // 몸통 위치도 즉시 계산
-    const avgX = (lf.x + rf.x + lh.x + rh.x) / 4;
-    const avgY = (lh.y + (lf.y + rf.y) / 2) * 0.5 + lh.y * 0.15;
-    this.bodyX = avgX;
-    this.bodyY = (lh.y + lf.y) / 2;
+    this.bodyX = (lf.x + rf.x + lh.x + rh.x) / 4;
+    this.bodyY = (lh.y + rh.y + lf.y + rf.y) / 4 + 20;
     this.headX = this.bodyX;
     this.headY = this.bodyY - CHARACTER.BODY_LENGTH * 0.5 - CHARACTER.HEAD_RADIUS;
   }
 
-  /** 팔다리를 즉시 홀드 위치에 배치 (초기화용) */
   _setLimbImmediate(limbId, hold) {
     const limb = this.limbs[limbId];
     limb.x = hold.x;
     limb.y = hold.y;
     limb.targetX = hold.x;
     limb.targetY = hold.y;
+    limb.startX = hold.x;
+    limb.startY = hold.y;
+    limb.releasedX = hold.x;
+    limb.releasedY = hold.y;
     limb.holdId = hold.id;
-    limb.animProgress = 1; // 애니메이션 완료 상태
+    limb.animProgress = 1;
+    limb.isDangling = false;
+    limb.isControlled = false;
   }
 
-  /** 팔다리를 특정 홀드에 붙이기 */
-  setLimbToHold(limbId, hold) {
+  getGripCount() {
+    return Object.values(this.limbs).filter((limb) => limb.holdId !== null).length;
+  }
+
+  getDanglingCount() {
+    return Object.values(this.limbs).filter((limb) => limb.holdId === null && !limb.isControlled).length;
+  }
+
+  getAnchor(limbId) {
+    const isHand = limbId.includes('Hand');
+    if (limbId === 'leftHand') {
+      return { x: this.bodyX - CHARACTER.SHOULDER_OFFSET_X, y: this.bodyY + CHARACTER.SHOULDER_OFFSET_Y };
+    }
+    if (limbId === 'rightHand') {
+      return { x: this.bodyX + CHARACTER.SHOULDER_OFFSET_X, y: this.bodyY + CHARACTER.SHOULDER_OFFSET_Y };
+    }
+    if (limbId === 'leftFoot') {
+      return { x: this.bodyX - CHARACTER.HIP_OFFSET_X, y: this.bodyY + CHARACTER.HIP_OFFSET_Y };
+    }
+    return {
+      x: this.bodyX + CHARACTER.HIP_OFFSET_X,
+      y: this.bodyY + CHARACTER.HIP_OFFSET_Y + (isHand ? 0 : 0),
+    };
+  }
+
+  getReachForLimb(limbId) {
+    return limbId.includes('Hand') ? CHARACTER.MAX_REACH_HAND : CHARACTER.MAX_REACH_FOOT;
+  }
+
+  getGrabRadiusForLimb(limbId) {
+    return CHARACTER.RELEASE_GRAB_RADIUS + (limbId.includes('Hand') ? 3 : 0);
+  }
+
+  startLimbControl(limbId) {
     const limb = this.limbs[limbId];
-    
-    // 이전 홀드 해제
+    this.controlledLimb = limbId;
+    this.lastReleasedLimb = null;
+    limb.isControlled = true;
+    limb.isDangling = false;
+    limb.releasedX = limb.x;
+    limb.releasedY = limb.y;
+    limb.startX = limb.x;
+    limb.startY = limb.y;
+    limb.targetX = limb.x;
+    limb.targetY = limb.y;
+    limb.animProgress = 1;
+
     if (limb.holdId !== null) {
-      // 외부에서 holds 배열을 업데이트해야 함
+      limb.holdId = null;
+    }
+  }
+
+  moveControlledLimb(limbId, dx, dy, dt) {
+    const limb = this.limbs[limbId];
+    if (!limb || !limb.isControlled) return;
+
+    const anchor = this.getAnchor(limbId);
+    const reach = this.getReachForLimb(limbId);
+    let nextX = limb.x + dx * CHARACTER.CONTROL_MOVE_SPEED * dt;
+    let nextY = limb.y + dy * CHARACTER.CONTROL_MOVE_SPEED * dt;
+
+    const dist = distance(anchor.x, anchor.y, nextX, nextY);
+    if (dist > reach) {
+      const ratio = reach / dist;
+      nextX = anchor.x + (nextX - anchor.x) * ratio;
+      nextY = anchor.y + (nextY - anchor.y) * ratio;
     }
 
+    limb.x = nextX;
+    limb.y = nextY;
+    limb.targetX = nextX;
+    limb.targetY = nextY;
+    limb.releasedX = nextX;
+    limb.releasedY = nextY;
+  }
+
+  releaseControlledLimb(limbId, hold) {
+    const limb = this.limbs[limbId];
+    if (!limb) return;
+
+    limb.isControlled = false;
+    this.controlledLimb = this.controlledLimb === limbId ? null : this.controlledLimb;
+    this.lastReleasedLimb = limbId;
+
+    if (hold) {
+      this.setLimbToHold(limbId, hold);
+      limb.isDangling = false;
+      return true;
+    }
+
+    limb.holdId = null;
+    limb.isDangling = true;
+    limb.releasedX = limb.x;
+    limb.releasedY = limb.y;
+    return false;
+  }
+
+  setLimbToHold(limbId, hold) {
+    const limb = this.limbs[limbId];
     limb.startX = limb.x;
     limb.startY = limb.y;
     limb.targetX = hold.x;
     limb.targetY = hold.y;
+    limb.releasedX = hold.x;
+    limb.releasedY = hold.y;
     limb.holdId = hold.id;
-    limb.animProgress = 0; // 이동 애니메이션 시작
+    limb.animProgress = 0;
+    limb.isDangling = false;
+    limb.isControlled = false;
   }
 
-  /** 팔다리를 홀드에서 떼기 */
-  releaseLimb(limbId) {
-    const limb = this.limbs[limbId];
-    limb.holdId = null;
+  startDynoCharge() {
+    if (this.isFalling || this.dyno.active || this.controlledLimb) return;
+    this.dyno.charging = true;
+    this.dyno.power = 0;
+    this.dyno.direction = { x: 0, y: -1 };
   }
 
-  /** 잡고 있는 팔다리 수 */
-  getGripCount() {
-    return Object.values(this.limbs).filter(l => l.holdId !== null).length;
+  updateDynoCharge(axis, dt) {
+    if (!this.dyno.charging) return;
+
+    if (axis.x !== 0 || axis.y !== 0) {
+      const len = Math.hypot(axis.x, axis.y) || 1;
+      this.dyno.direction = { x: axis.x / len, y: axis.y / len };
+      this.dyno.power = clamp(this.dyno.power + DYNO.CHARGE_RATE * dt, 0, DYNO.MAX_POWER);
+    }
   }
 
-  /** 잡고 있는 손 수 */
-  getHandGripCount() {
-    let count = 0;
-    if (this.limbs.leftHand.holdId !== null) count++;
-    if (this.limbs.rightHand.holdId !== null) count++;
-    return count;
+  releaseDynoCharge() {
+    if (!this.dyno.charging) return false;
+    const hasDirection = Math.abs(this.dyno.direction.x) + Math.abs(this.dyno.direction.y) > 0;
+    const launched = hasDirection && this.dyno.power >= DYNO.MIN_POWER;
+
+    if (launched) {
+      this.dyno.active = true;
+      this.dyno.timer = 0;
+      this.dyno.velocityX = this.dyno.direction.x * DYNO.BODY_SPEED * this.dyno.power;
+      this.dyno.velocityY = this.dyno.direction.y * DYNO.BODY_SPEED * this.dyno.power - DYNO.UPWARD_BOOST * this.dyno.power;
+      for (const limbId of LIMB_IDS) {
+        if (this.limbs[limbId].holdId === null) {
+          this.limbs[limbId].isDangling = true;
+        }
+      }
+    }
+
+    this.dyno.charging = false;
+    this.dyno.power = launched ? this.dyno.power : 0;
+    return launched;
   }
 
-  /**
-   * 매 프레임 업데이트
-   * @param {number} dt - 프레임 시간 (초)
-   * @param {Array} holds - 홀드 배열
-   * @param {number} diffTensionMult - 난이도별 긴장도 배율
-   * @returns {{ tension: number, isFalling: boolean }}
-   */
+  canCatchDuringDyno() {
+    return this.dyno.active &&
+      this.dyno.timer >= DYNO.HOLD_WINDOW_START &&
+      this.dyno.timer <= DYNO.HOLD_WINDOW_END;
+  }
+
+  getDynoReachTarget(limbId) {
+    const anchor = this.getAnchor(limbId);
+    const reach = this.getReachForLimb(limbId) * (limbId.includes('Hand') ? 0.9 : 0.75);
+    return {
+      x: anchor.x + this.dyno.direction.x * reach,
+      y: anchor.y + this.dyno.direction.y * reach,
+    };
+  }
+
+  catchDuringDyno(limbId, hold) {
+    if (!this.canCatchDuringDyno()) return false;
+    if (!hold) {
+      this.limbs[limbId].holdId = null;
+      this.limbs[limbId].isDangling = true;
+      return false;
+    }
+
+    this.setLimbToHold(limbId, hold);
+    return true;
+  }
+
   update(dt, holds, diffTensionMult = 1.0) {
     this.wobbleTime += dt;
 
-    // 1) 팔다리 이동 애니메이션
-    for (const limb of Object.values(this.limbs)) {
+    for (const [limbId, limb] of Object.entries(this.limbs)) {
+      if (limb.isControlled) continue;
+
       if (limb.animProgress < 1) {
-        limb.animProgress = Math.min(1, limb.animProgress + dt * 4.5); // ~0.22초에 완료
+        limb.animProgress = Math.min(1, limb.animProgress + dt * DYNAMICS.LIMB_SNAP_SPEED);
         const t = easeOutBack(limb.animProgress);
         limb.x = lerp(limb.startX, limb.targetX, t);
         limb.y = lerp(limb.startY, limb.targetY, t);
+      } else if (limb.holdId === null) {
+        const dangleTarget = this.getDanglingTarget(limbId);
+        limb.x = lerp(limb.x, dangleTarget.x, DYNAMICS.DANGLE_LERP);
+        limb.y = lerp(limb.y, dangleTarget.y, DYNAMICS.DANGLE_LERP);
       } else {
         limb.x = limb.targetX;
         limb.y = limb.targetY;
       }
     }
 
-    // 2) 몸통 위치 계산
     this.updateBodyPosition();
 
-    // 3) 추락 중이면 물리 처리
     if (this.isFalling) {
-      this.fallVelocity += 800 * dt; // 중력
+      this.fallVelocity += 800 * dt;
       this.fallY += this.fallVelocity * dt;
-      return { tension: this.tension, isFalling: true };
+      return { tension: this.tension, isFalling: true, badPosture: this.badPosture };
     }
 
-    // 4) 스트레칭 계산 (팔다리가 얼마나 늘어나 있는지)
-    this.stretchFactor = this.calculateStretch(holds);
+    if (this.dyno.active) {
+      this.updateDynoMotion(dt);
+    }
 
-    // 5) 긴장도 업데이트
+    this.stretchFactor = this.calculateStretch();
+    this.badPosture = this.evaluateBadPosture();
     this.updateTension(dt, holds, diffTensionMult);
 
-    // 6) 추락 체크
     if (this.tension >= TENSION.FAIL_THRESHOLD || this.getGripCount() === 0) {
       this.startFalling();
     }
 
-    return { tension: this.tension, isFalling: this.isFalling };
+    return {
+      tension: this.tension,
+      isFalling: this.isFalling,
+      badPosture: this.badPosture,
+      gripCount: this.getGripCount(),
+    };
   }
 
-  /** 몸통 위치 계산 - 팔다리의 중심점 */
-  updateBodyPosition() {
-    const grippedLimbs = Object.values(this.limbs).filter(l => l.holdId !== null);
-    if (grippedLimbs.length === 0) return;
+  updateDynoMotion(dt) {
+    this.dyno.timer += dt;
+    this.bodyX += this.dyno.velocityX * dt;
+    this.bodyY += this.dyno.velocityY * dt;
+    this.dyno.velocityY += 820 * dt;
 
-    // 손과 발의 중간점으로 몸통 위치 계산
-    const hands = [this.limbs.leftHand, this.limbs.rightHand].filter(l => l.holdId !== null);
-    const feet = [this.limbs.leftFoot, this.limbs.rightFoot].filter(l => l.holdId !== null);
-
-    let avgX, avgY;
-
-    if (hands.length > 0 && feet.length > 0) {
-      const handAvgX = hands.reduce((s, l) => s + l.x, 0) / hands.length;
-      const handAvgY = hands.reduce((s, l) => s + l.y, 0) / hands.length;
-      const footAvgX = feet.reduce((s, l) => s + l.x, 0) / feet.length;
-      const footAvgY = feet.reduce((s, l) => s + l.y, 0) / feet.length;
-      // 몸통은 손과 발 중간의 위쪽 1/3 지점
-      avgX = (handAvgX + footAvgX) / 2;
-      avgY = handAvgY + (footAvgY - handAvgY) * 0.35;
-    } else {
-      avgX = grippedLimbs.reduce((s, l) => s + l.x, 0) / grippedLimbs.length;
-      avgY = grippedLimbs.reduce((s, l) => s + l.y, 0) / grippedLimbs.length;
+    for (const limbId of LIMB_IDS) {
+      const limb = this.limbs[limbId];
+      if (limb.holdId !== null || limb.isControlled) continue;
+      const target = this.getDynoReachTarget(limbId);
+      limb.x = lerp(limb.x, target.x, 0.2);
+      limb.y = lerp(limb.y, target.y, 0.2);
     }
 
-    // 부드럽게 이동 + 우스꽝스러운 흔들림
-    const wobbleX = wobble(this.wobbleTime, 0.8, 2 + this.tension * 0.1);
-    const wobbleY = wobble(this.wobbleTime, 1.2, 1 + this.tension * 0.05);
+    if (this.dyno.timer >= DYNO.DURATION) {
+      this.dyno.active = false;
+      this.dyno.power = 0;
+    }
+  }
 
-    this.bodyX = lerp(this.bodyX, avgX + wobbleX, 0.15);
-    this.bodyY = lerp(this.bodyY, avgY + wobbleY, 0.15);
+  updateBodyPosition() {
+    const grippedLimbs = Object.entries(this.limbs).filter(([, limb]) => limb.holdId !== null);
 
-    // 머리는 몸통 위
-    this.headX = this.bodyX + wobble(this.wobbleTime, 0.6, 3);
+    let targetX = this.bodyX;
+    let targetY = this.bodyY;
+
+    if (grippedLimbs.length >= 2) {
+      const xs = grippedLimbs.map(([, limb]) => limb.x);
+      const ys = grippedLimbs.map(([, limb]) => limb.y);
+      targetX = xs.reduce((sum, value) => sum + value, 0) / xs.length;
+      targetY = ys.reduce((sum, value) => sum + value, 0) / ys.length + 20;
+    } else if (grippedLimbs.length === 1) {
+      const [, limb] = grippedLimbs[0];
+      targetX = limb.x;
+      targetY = limb.y + 70;
+    }
+
+    const wobbleX = wobble(this.wobbleTime, 0.8, 2 + this.tension * 0.08);
+    const wobbleY = wobble(this.wobbleTime, 1.1, 1 + this.tension * 0.04);
+
+    this.bodyX = lerp(this.bodyX, targetX + wobbleX, DYNAMICS.BODY_LERP);
+    this.bodyY = lerp(this.bodyY, targetY + wobbleY, DYNAMICS.BODY_LERP);
+    this.headX = this.bodyX + wobble(this.wobbleTime, 0.6, 2.5);
     this.headY = this.bodyY - CHARACTER.BODY_LENGTH * 0.5 - CHARACTER.HEAD_RADIUS;
   }
 
-  /** 스트레칭 정도 계산 (0~1) */
-  calculateStretch(holds) {
-    let maxStretch = 0;
-    const grippedLimbs = Object.entries(this.limbs).filter(([, l]) => l.holdId !== null);
+  getDanglingTarget(limbId) {
+    const anchor = this.getAnchor(limbId);
+    const side = limbId.startsWith('left') ? -1 : 1;
+    const isHand = limbId.includes('Hand');
 
-    for (let i = 0; i < grippedLimbs.length; i++) {
-      for (let j = i + 1; j < grippedLimbs.length; j++) {
-        const [, l1] = grippedLimbs[i];
-        const [, l2] = grippedLimbs[j];
-        const dist = distance(l1.x, l1.y, l2.x, l2.y);
-        const maxDist = CHARACTER.ARM_LENGTH + CHARACTER.LEG_LENGTH + CHARACTER.BODY_LENGTH;
-        const stretch = dist / maxDist;
-        maxStretch = Math.max(maxStretch, stretch);
-      }
-    }
-
-    return clamp(maxStretch, 0, 1);
+    return {
+      x: anchor.x + side * (isHand ? 8 : 10),
+      y: anchor.y + (isHand ? 78 : 94),
+    };
   }
 
-  /** 긴장도 업데이트 */
-  updateTension(dt, holds, diffMult) {
-    const gripCount = this.getGripCount();
-    const gripBonus = TENSION.GRIP_BONUS[gripCount] ?? TENSION.GRIP_BONUS[0];
+  calculateStretch() {
+    let maxStretch = 0;
 
-    // 기본 증가
-    let tensionDelta = TENSION.BASE_INCREASE;
-
-    // 잡고 있는 팔다리 수에 따른 보정
-    tensionDelta += gripBonus;
-
-    // 스트레칭에 따른 추가 증가
-    if (this.stretchFactor > CHARACTER.STRETCH_WARN) {
-      const stretchExtra = (this.stretchFactor - CHARACTER.STRETCH_WARN) / 
-                           (CHARACTER.STRETCH_MAX - CHARACTER.STRETCH_WARN);
-      tensionDelta += TENSION.STRETCH_INCREASE * stretchExtra;
+    for (const limbId of LIMB_IDS) {
+      const limb = this.limbs[limbId];
+      const anchor = this.getAnchor(limbId);
+      const reach = this.getReachForLimb(limbId);
+      const stretch = distance(anchor.x, anchor.y, limb.x, limb.y) / reach;
+      maxStretch = Math.max(maxStretch, stretch);
     }
 
-    // 미끄러운 홀드 체크
+    return clamp(maxStretch, 0, 1.2);
+  }
+
+  evaluateBadPosture() {
+    const leftHand = this.limbs.leftHand;
+    const rightHand = this.limbs.rightHand;
+    const leftFoot = this.limbs.leftFoot;
+    const rightFoot = this.limbs.rightFoot;
+
+    const shoulderSpan = distance(leftHand.x, leftHand.y, rightHand.x, rightHand.y);
+    const footSpan = distance(leftFoot.x, leftFoot.y, rightFoot.x, rightFoot.y);
+    const crossedHands = leftHand.x > rightHand.x + 40;
+    const crossedFeet = leftFoot.x > rightFoot.x + 30;
+
+    return shoulderSpan > 250 || footSpan > 260 || crossedHands || crossedFeet || this.stretchFactor > 0.96;
+  }
+
+  updateTension(dt, holds, diffMult) {
+    const gripCount = this.getGripCount();
+    const danglingCount = this.getDanglingCount();
+    const gripBonus = TENSION.GRIP_BONUS[gripCount] ?? TENSION.GRIP_BONUS[0];
+
+    let tensionDelta = TENSION.BASE_INCREASE + gripBonus;
+
+    if (this.stretchFactor > CHARACTER.STRETCH_WARN) {
+      const stretchExtra = (this.stretchFactor - CHARACTER.STRETCH_WARN) /
+        (CHARACTER.STRETCH_MAX - CHARACTER.STRETCH_WARN);
+      tensionDelta += TENSION.STRETCH_INCREASE * clamp(stretchExtra, 0, 2);
+    }
+
+    tensionDelta += danglingCount * TENSION.DANGLING_PENALTY;
+
+    if (this.badPosture) {
+      tensionDelta += TENSION.BAD_POSTURE_PENALTY;
+    }
+
     for (const limb of Object.values(this.limbs)) {
       if (limb.holdId !== null) {
         const hold = holds[limb.holdId];
-        if (hold) {
-          tensionDelta *= hold.type.tensionMultiplier;
-          // 미끄러짐 체크
-          if (hold.type.slipChance > 0 && Math.random() < hold.type.slipChance) {
-            this.tension += 5; // 미끄러질 때 긴장도 급증
-          }
+        if (!hold) continue;
+        tensionDelta *= hold.type.tensionMultiplier;
+        if (hold.type.slipChance > 0 && Math.random() < hold.type.slipChance) {
+          this.tension += 5;
         }
       }
     }
 
-    // 안정적일 때 감소
-    if (gripCount >= 3 && this.stretchFactor < CHARACTER.STRETCH_WARN) {
+    if (gripCount >= 3 && !this.dyno.active && !this.controlledLimb && this.stretchFactor < CHARACTER.STRETCH_WARN) {
       tensionDelta -= TENSION.REST_DECREASE;
     }
 
-    // 난이도 배율 적용
+    if (this.dyno.active) {
+      tensionDelta += 0.25;
+    }
+
     if (tensionDelta > 0) {
       tensionDelta *= diffMult;
     }
@@ -262,26 +455,26 @@ export class Character {
     this.tension = clamp(this.tension + tensionDelta, 0, TENSION.MAX);
   }
 
-  /** 추락 시작 */
   startFalling() {
     this.isFalling = true;
     this.fallVelocity = 0;
     this.fallY = 0;
-    // 모든 팔다리 해제
+    this.dyno.active = false;
+    this.dyno.charging = false;
     for (const limb of Object.values(this.limbs)) {
       limb.holdId = null;
+      limb.isControlled = false;
+      limb.isDangling = true;
     }
   }
 
-  /** 캐릭터의 가장 높은 위치 (Y가 작을수록 높음) */
   getHighestY() {
-    const gripped = Object.values(this.limbs).filter(l => l.holdId !== null);
-    if (gripped.length === 0) return this.bodyY;
-    return Math.min(...gripped.map(l => l.y));
+    const allY = Object.values(this.limbs).map((limb) => limb.y);
+    allY.push(this.bodyY);
+    return Math.min(...allY);
   }
 }
 
-/** easeOutBack 이징 함수 (약간 튕기는 느낌) */
 function easeOutBack(t) {
   const c1 = 1.70158;
   const c3 = c1 + 1;

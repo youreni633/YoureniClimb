@@ -96,3 +96,26 @@ export function formatTime(seconds) {
 export function wobble(time, frequency = 1, amplitude = 1) {
   return Math.sin(time * frequency * Math.PI * 2) * amplitude;
 }
+
+/** 배열에서 임의 요소 선택 */
+export function sample(items) {
+  if (!items.length) return null;
+  return items[Math.floor(Math.random() * items.length)];
+}
+
+/** 범위 안 가장 가까운 홀드 찾기 */
+export function findNearestHold(x, y, holds, radius, filter = () => true) {
+  let nearest = null;
+  let nearestDist = Infinity;
+
+  for (const hold of holds) {
+    if (!filter(hold)) continue;
+    const dist = distance(x, y, hold.x, hold.y);
+    if (dist <= radius && dist < nearestDist) {
+      nearest = hold;
+      nearestDist = dist;
+    }
+  }
+
+  return nearest;
+}
