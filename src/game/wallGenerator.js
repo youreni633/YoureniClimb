@@ -1,6 +1,6 @@
 /**
  * QWER Climb - Wall Generator
- * 시작 구간은 넉넉하고 위로 갈수록 드문 홀드 구성을 만듭니다.
+ * 홀드가 겹치지 않도록 규칙적인 레인 간격으로 벽을 생성합니다.
  */
 
 import { CANVAS_WIDTH, DIFFICULTY, HOLD_TYPES, WALL_MARGIN_X } from './constants.js';
@@ -16,11 +16,9 @@ export function generateWall(difficultyKey) {
   const startY = wallHeight - 55;
   const goalY = 60;
 
-  createStartCluster(holds, wallLeft, wallWidth, startY);
-  createBottomSupport(holds, wallLeft, wallWidth, wallHeight, diff);
-  createClimbZones(holds, wallLeft, wallWidth, wallHeight, goalY, diff);
-  ensureBottomMobility(holds, wallHeight, diff);
-  addGoalHolds(holds, wallLeft, wallWidth, goalY);
+  createStartCluster(holds, wallLeft, wallWidth, startY, Math.min(diff.minHoldDistance, 58));
+  createStructuredZones(holds, wallLeft, wallRight, wallHeight, goalY, diff);
+  addGoalHolds(holds, wallLeft, wallWidth, goalY, diff.minHoldDistance);
 
   return {
     holds,
@@ -40,29 +38,29 @@ export function generateTutorialWall() {
   const wallHeight = 760;
   const goalY = 60;
   const startY = wallHeight - 55;
+  const minDistance = 60;
 
-  createStartCluster(holds, WALL_MARGIN_X, CANVAS_WIDTH - WALL_MARGIN_X * 2, startY);
+  createStartCluster(holds, WALL_MARGIN_X, CANVAS_WIDTH - WALL_MARGIN_X * 2, startY, 58);
 
   const tutorialHolds = [
-    { x: 280, y: startY - 80, type: 'GREEN' },
-    { x: 360, y: startY - 115, type: 'GREEN' },
-    { x: 460, y: startY - 95, type: 'GREEN' },
-    { x: 530, y: startY - 145, type: 'BLUE' },
-    { x: 320, y: startY - 190, type: 'GREEN' },
-    { x: 420, y: startY - 220, type: 'BLUE' },
-    { x: 520, y: startY - 255, type: 'GREEN' },
-    { x: 360, y: startY - 310, type: 'GREEN' },
-    { x: 500, y: startY - 360, type: 'PURPLE' },
-    { x: 310, y: startY - 430, type: 'GREEN' },
-    { x: 460, y: startY - 470, type: 'GREEN' },
-    { x: 380, y: startY - 540, type: 'PURPLE' },
+    { x: 300, y: startY - 82, type: 'GREEN' },
+    { x: 400, y: startY - 110, type: 'GREEN' },
+    { x: 500, y: startY - 96, type: 'GREEN' },
+    { x: 360, y: startY - 188, type: 'GREEN' },
+    { x: 460, y: startY - 214, type: 'BLUE' },
+    { x: 320, y: startY - 288, type: 'GREEN' },
+    { x: 430, y: startY - 316, type: 'BLUE' },
+    { x: 530, y: startY - 352, type: 'GREEN' },
+    { x: 360, y: startY - 430, type: 'GREEN' },
+    { x: 480, y: startY - 462, type: 'PURPLE' },
+    { x: 390, y: startY - 548, type: 'PURPLE' },
   ];
 
   tutorialHolds.forEach((hold) => {
-    holds.push(createHold(hold.x, hold.y, hold.type, holds.length));
+    tryAddHold(holds, hold.x, hold.y, hold.type, minDistance);
   });
 
-  addGoalHolds(holds, WALL_MARGIN_X, CANVAS_WIDTH - WALL_MARGIN_X * 2, goalY);
+  addGoalHolds(holds, WALL_MARGIN_X, CANVAS_WIDTH - WALL_MARGIN_X * 2, goalY, minDistance);
 
   return {
     holds,
@@ -77,85 +75,152 @@ export function generateTutorialWall() {
   };
 }
 
-function createStartCluster(holds, wallLeft, wallWidth, startY) {
+function createStartCluster(holds, wallLeft, wallWidth, startY, minDistance) {
   const baseX = wallLeft + wallWidth * 0.5;
   const startLayout = [
-    { x: baseX - 120, y: startY, type: 'GREEN' },
-    { x: baseX + 120, y: startY, type: 'GREEN' },
-    { x: baseX - 110, y: startY - 72, type: 'GREEN' },
-    { x: baseX + 110, y: startY - 72, type: 'GREEN' },
-    { x: baseX - 10, y: startY - 30, type: 'GREEN' },
-    { x: baseX - 170, y: startY - 28, type: 'BLUE' },
-    { x: baseX + 170, y: startY - 28, type: 'BLUE' },
-    { x: baseX - 70, y: startY - 120, type: 'GREEN' },
-    { x: baseX + 70, y: startY - 120, type: 'GREEN' },
-    { x: baseX, y: startY - 165, type: 'BLUE' },
+    { x: baseX - 110, y: startY, type: 'GREEN' },
+    { x: baseX + 110, y: startY, type: 'GREEN' },
+    { x: baseX - 108, y: startY - 72, type: 'GREEN' },
+    { x: baseX + 108, y: startY - 72, type: 'GREEN' },
+    { x: baseX - 48, y: startY - 38, type: 'GREEN' },
+    { x: baseX + 48, y: startY - 38, type: 'GREEN' },
+    { x: baseX - 200, y: startY - 24, type: 'BLUE' },
+    { x: baseX + 200, y: startY - 24, type: 'BLUE' },
+    { x: baseX - 82, y: startY - 144, type: 'GREEN' },
+    { x: baseX + 82, y: startY - 144, type: 'GREEN' },
   ];
 
   startLayout.forEach((hold) => {
-    holds.push(createHold(hold.x, hold.y, hold.type, holds.length));
+    tryAddHold(holds, hold.x, hold.y, hold.type, minDistance);
   });
 }
 
-function createBottomSupport(holds, wallLeft, wallWidth, wallHeight, diff) {
-  const zoneTop = wallHeight * 0.75;
-  const extraCount = randInt(6, 9);
-
-  for (let i = 0; i < extraCount; i++) {
-    const x = wallLeft + 35 + randFloat(0, wallWidth - 70);
-    const y = randFloat(zoneTop, wallHeight - 150);
-    const type = weightedRandom(diff.zoneWeights.bottom);
-    holds.push(createHold(x, y, type, holds.length));
-  }
-}
-
-function createClimbZones(holds, wallLeft, wallWidth, wallHeight, goalY, diff) {
+function createStructuredZones(holds, wallLeft, wallRight, wallHeight, goalY, diff) {
   const totalTarget = randInt(diff.holdCount.min, diff.holdCount.max);
   const remaining = Math.max(0, totalTarget - holds.length - 2);
+  const quotas = {
+    bottom: Math.round(remaining * 0.34),
+    middle: Math.round(remaining * 0.42),
+  };
+  quotas.top = Math.max(0, remaining - quotas.bottom - quotas.middle);
 
-  const bottomCount = Math.floor(remaining * 0.35);
-  const middleCount = Math.floor(remaining * 0.42);
-  const topCount = remaining - bottomCount - middleCount;
+  const pathState = {
+    bottom: Math.floor(diff.lanes.bottom / 2),
+    middle: Math.floor(diff.lanes.middle / 2),
+    top: Math.floor(diff.lanes.top / 2),
+  };
 
   const zones = [
-    { count: bottomCount, yMin: wallHeight * 0.58, yMax: wallHeight * 0.75, weights: diff.zoneWeights.bottom, spacing: { min: 52, max: 86 } },
-    { count: middleCount, yMin: wallHeight * 0.25, yMax: wallHeight * 0.58, weights: diff.zoneWeights.middle, spacing: { min: 74, max: 118 } },
-    { count: topCount, yMin: goalY + 70, yMax: wallHeight * 0.25, weights: diff.zoneWeights.top, spacing: diff.topSpacing },
+    { name: 'bottom', yStart: wallHeight * 0.72, yEnd: wallHeight * 0.56 },
+    { name: 'middle', yStart: wallHeight * 0.54, yEnd: wallHeight * 0.24 },
+    { name: 'top', yStart: wallHeight * 0.22, yEnd: goalY + 86 },
   ];
 
   zones.forEach((zone) => {
-    const ys = distributeY(zone.count, zone.yMin, zone.yMax, zone.spacing.min, zone.spacing.max);
-    ys.forEach((y) => {
-      const x = wallLeft + 28 + randFloat(0, wallWidth - 56);
-      const type = weightedRandom(zone.weights);
-      holds.push(createHold(x, y, type, holds.length));
-    });
+    createZoneRows(holds, zone, quotas[zone.name], diff, wallLeft, wallRight, pathState);
   });
 }
 
-function addGoalHolds(holds, wallLeft, wallWidth, goalY) {
-  holds.push(createHold(wallLeft + wallWidth * 0.32, goalY, 'PURPLE', holds.length));
-  holds.push(createHold(wallLeft + wallWidth * 0.68, goalY, 'PURPLE', holds.length));
+function createZoneRows(holds, zone, quota, diff, wallLeft, wallRight, pathState) {
+  if (quota <= 0) return;
+
+  const spacing = diff.spacing[zone.name];
+  const [rowMin, rowMax] = diff.rowHolds[zone.name];
+  const laneXs = buildLaneCenters(wallLeft, wallRight, diff.lanes[zone.name]);
+  const minDistance = diff.minHoldDistance;
+  let currentY = zone.yStart;
+  let placed = 0;
+  let rowIndex = 0;
+  let activeLane = pathState[zone.name];
+
+  while (placed < quota && currentY >= zone.yEnd) {
+    activeLane = getNextLane(activeLane, laneXs.length, rowIndex);
+    const rowQuota = quota - placed;
+    const desiredCount = Math.min(rowQuota, randInt(rowMin, rowMax));
+    const selectedLanes = pickRowLanes(activeLane, desiredCount, laneXs.length);
+
+    let rowPlaced = 0;
+    selectedLanes.forEach((laneIndex, index) => {
+      const laneOrder = [laneIndex, laneIndex - 1, laneIndex + 1, laneIndex - 2, laneIndex + 2]
+        .filter((candidate, candidateIndex, arr) =>
+          candidate >= 0 && candidate < laneXs.length && arr.indexOf(candidate) === candidateIndex
+        );
+
+      for (const candidateLane of laneOrder) {
+        const x = laneXs[candidateLane] + randFloat(-12, 12);
+        const y = currentY + randFloat(-8, 8);
+        const typeKey = weightedRandom(diff.zoneWeights[zone.name]);
+        if (tryAddHold(holds, x, y, typeKey, minDistance)) {
+          rowPlaced++;
+          break;
+        }
+      }
+    });
+
+    if (rowPlaced > 0) {
+      placed += rowPlaced;
+      pathState[zone.name] = Math.round(
+        selectedLanes.reduce((sum, lane) => sum + lane, 0) / selectedLanes.length
+      );
+    }
+
+    currentY -= randFloat(spacing.min, spacing.max);
+    rowIndex++;
+  }
 }
 
-function ensureBottomMobility(holds, wallHeight, diff) {
-  const bottomBand = holds
-    .filter((hold) => hold.y >= wallHeight * 0.68)
-    .sort((a, b) => b.y - a.y);
+function addGoalHolds(holds, wallLeft, wallWidth, goalY, minDistance) {
+  tryAddHold(holds, wallLeft + wallWidth * 0.36, goalY, 'PURPLE', minDistance);
+  tryAddHold(holds, wallLeft + wallWidth * 0.64, goalY, 'PURPLE', minDistance);
+}
 
-  for (let i = 0; i < bottomBand.length - 1; i++) {
-    const current = bottomBand[i];
-    const next = bottomBand[i + 1];
-    const dist = Math.hypot(current.x - next.x, current.y - next.y);
-    if (dist > 130) {
-      holds.push(createHold(
-        (current.x + next.x) / 2,
-        (current.y + next.y) / 2,
-        weightedRandom(diff.zoneWeights.bottom),
-        holds.length
-      ));
-    }
+function buildLaneCenters(wallLeft, wallRight, laneCount) {
+  const sidePadding = 58;
+  const usableLeft = wallLeft + sidePadding;
+  const usableRight = wallRight - sidePadding;
+  const usableWidth = usableRight - usableLeft;
+
+  if (laneCount === 1) return [usableLeft + usableWidth / 2];
+
+  return Array.from({ length: laneCount }, (_, index) =>
+    usableLeft + usableWidth * (index / (laneCount - 1))
+  );
+}
+
+function getNextLane(currentLane, laneCount, rowIndex) {
+  const stepChoices = rowIndex % 2 === 0 ? [0, -1, 1] : [0, 1, -1];
+  for (const step of stepChoices) {
+    const next = currentLane + step;
+    if (next >= 0 && next < laneCount) return next;
   }
+  return Math.max(0, Math.min(laneCount - 1, currentLane));
+}
+
+function pickRowLanes(mainLane, count, laneCount) {
+  const offsets = [0, -1, 1, -2, 2];
+  const selected = [];
+
+  for (const offset of offsets) {
+    const lane = mainLane + offset;
+    if (lane < 0 || lane >= laneCount) continue;
+    if (!selected.includes(lane)) {
+      selected.push(lane);
+    }
+    if (selected.length >= count) break;
+  }
+
+  return selected;
+}
+
+function tryAddHold(holds, x, y, typeKey, minDistance) {
+  if (!canPlaceHold(holds, x, y, minDistance)) return false;
+
+  holds.push(createHold(x, y, typeKey, holds.length));
+  return true;
+}
+
+function canPlaceHold(holds, x, y, minDistance) {
+  return holds.every((hold) => Math.hypot(hold.x - x, hold.y - y) >= minDistance);
 }
 
 function createHold(x, y, typeKey, index) {
@@ -171,21 +236,4 @@ function createHold(x, y, typeKey, index) {
     shapeVariant: randInt(0, 3),
     rotation: randFloat(-0.3, 0.3),
   };
-}
-
-function distributeY(count, yMin, yMax, spacingMin, spacingMax) {
-  if (count <= 0) return [];
-
-  const values = [];
-  let current = yMax;
-
-  for (let i = 0; i < count; i++) {
-    values.push(current);
-    current -= randFloat(spacingMin, spacingMax);
-    if (current < yMin) {
-      current = randFloat(yMin, yMax);
-    }
-  }
-
-  return values;
 }

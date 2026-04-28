@@ -429,30 +429,37 @@ export class Character {
       tensionDelta += TENSION.BAD_POSTURE_PENALTY;
     }
 
+    let gripMultiplierSum = 0;
+    let gripMultiplierCount = 0;
     for (const limb of Object.values(this.limbs)) {
       if (limb.holdId !== null) {
         const hold = holds[limb.holdId];
         if (!hold) continue;
-        tensionDelta *= hold.type.tensionMultiplier;
+        gripMultiplierSum += hold.type.tensionMultiplier;
+        gripMultiplierCount++;
         if (hold.type.slipChance > 0 && Math.random() < hold.type.slipChance) {
-          this.tension += 5;
+          this.tension += 1.5;
         }
       }
     }
 
-    if (gripCount >= 3 && !this.dyno.active && !this.controlledLimb && this.stretchFactor < CHARACTER.STRETCH_WARN) {
+    if (gripMultiplierCount > 0) {
+      tensionDelta *= gripMultiplierSum / gripMultiplierCount;
+    }
+
+    if (gripCount >= 3 && !this.dyno.active && this.stretchFactor < CHARACTER.STRETCH_WARN) {
       tensionDelta -= TENSION.REST_DECREASE;
     }
 
     if (this.dyno.active) {
-      tensionDelta += 0.25;
+      tensionDelta += 1.2;
     }
 
     if (tensionDelta > 0) {
       tensionDelta *= diffMult;
     }
 
-    this.tension = clamp(this.tension + tensionDelta, 0, TENSION.MAX);
+    this.tension = clamp(this.tension + tensionDelta * dt, 0, TENSION.MAX);
   }
 
   startFalling() {
