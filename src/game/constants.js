@@ -21,7 +21,9 @@ export const HOLD_TYPES = {
     tensionMultiplier: 0.82,
     slipChance: 0,
     scoreValue: 10,
-    radius: 18,
+    radius: 19,
+    shape: 'jug',
+    shapeVariants: 3,
   },
   BLUE: {
     id: 'blue',
@@ -33,7 +35,9 @@ export const HOLD_TYPES = {
     tensionMultiplier: 1.0,
     slipChance: 0,
     scoreValue: 20,
-    radius: 15,
+    radius: 17,
+    shape: 'block',
+    shapeVariants: 3,
   },
   RED: {
     id: 'red',
@@ -45,7 +49,9 @@ export const HOLD_TYPES = {
     tensionMultiplier: 1.3,
     slipChance: 0,
     scoreValue: 40,
-    radius: 12,
+    radius: 15,
+    shape: 'crimp',
+    shapeVariants: 3,
   },
   YELLOW: {
     id: 'yellow',
@@ -57,7 +63,9 @@ export const HOLD_TYPES = {
     tensionMultiplier: 1.5,
     slipChance: 0.003,
     scoreValue: 30,
-    radius: 16,
+    radius: 18,
+    shape: 'halfMoon',
+    shapeVariants: 2,
   },
   PURPLE: {
     id: 'purple',
@@ -69,7 +77,9 @@ export const HOLD_TYPES = {
     tensionMultiplier: 1.08,
     slipChance: 0,
     scoreValue: 100,
-    radius: 14,
+    radius: 24,
+    shape: 'volume',
+    shapeVariants: 2,
   },
 };
 

@@ -227,6 +227,7 @@ export class GameEngine {
       if (this.input.wasJustReleased(' ') || arrowReleased) {
         const launched = this.character.releaseDynoCharge();
         if (launched) {
+          this._releaseAllHoldsForDyno();
           this._setFeedback('다이노!', 0.5);
         }
       }
@@ -358,6 +359,13 @@ export class GameEngine {
     if (!hold) return;
     hold.grabbed = true;
     hold.grabbedBy = limbId;
+  }
+
+  _releaseAllHoldsForDyno() {
+    const released = this.character.detachAllGripsForDyno();
+    released.forEach(({ holdId, limbId }) => {
+      this._clearHoldGrab(holdId, limbId);
+    });
   }
 
   _updateGame(dt) {

@@ -249,6 +249,30 @@ export class Character {
     return launched;
   }
 
+  detachAllGripsForDyno() {
+    const released = [];
+
+    for (const limbId of LIMB_IDS) {
+      const limb = this.limbs[limbId];
+      if (limb.holdId !== null) {
+        released.push({ limbId, holdId: limb.holdId });
+      }
+
+      limb.holdId = null;
+      limb.isControlled = false;
+      limb.isDangling = true;
+      limb.startX = limb.x;
+      limb.startY = limb.y;
+      limb.targetX = limb.x;
+      limb.targetY = limb.y;
+      limb.releasedX = limb.x;
+      limb.releasedY = limb.y;
+      limb.animProgress = 1;
+    }
+
+    return released;
+  }
+
   canCatchDuringDyno() {
     return this.dyno.active &&
       this.dyno.timer >= DYNO.HOLD_WINDOW_START &&
@@ -313,7 +337,7 @@ export class Character {
     this.badPosture = this.evaluateBadPosture();
     this.updateTension(dt, holds, diffTensionMult);
 
-    if (this.tension >= TENSION.FAIL_THRESHOLD || this.getGripCount() === 0) {
+    if (this.tension >= TENSION.FAIL_THRESHOLD || (!this.dyno.active && this.getGripCount() === 0)) {
       this.startFalling();
     }
 

@@ -214,36 +214,29 @@ export class Renderer {
     }
 
     ctx.fillStyle = type.color;
-
-    switch (shapeVariant) {
-      case 0:
+    switch (type.shape) {
+      case 'jug':
+        drawJugHold(ctx, r, shapeVariant, type.color);
+        break;
+      case 'block':
+        drawBlockHold(ctx, r, shapeVariant, type.color);
+        break;
+      case 'crimp':
+        drawCrimpHold(ctx, r, shapeVariant, type.color);
+        break;
+      case 'halfMoon':
+        drawHalfMoonHold(ctx, r, shapeVariant, type.color);
+        break;
+      case 'volume':
+        drawVolumeHold(ctx, r, shapeVariant, type.color);
+        break;
+      default:
         ctx.beginPath();
         ctx.arc(0, 0, r, 0, Math.PI * 2);
         ctx.fill();
         break;
-      case 1:
-        ctx.beginPath();
-        ctx.ellipse(0, 0, r * 1.3, r * 0.8, 0, 0, Math.PI * 2);
-        ctx.fill();
-        break;
-      case 2:
-        roundRect(ctx, -r, -r * 0.8, r * 2, r * 1.6, r * 0.4);
-        ctx.fill();
-        break;
-      default:
-        ctx.beginPath();
-        ctx.moveTo(-r, r * 0.6);
-        ctx.lineTo(r, r * 0.4);
-        ctx.lineTo(0, -r * 0.8);
-        ctx.closePath();
-        ctx.fill();
-        break;
     }
 
-    ctx.fillStyle = 'rgba(255, 255, 255, 0.2)';
-    ctx.beginPath();
-    ctx.arc(-r * 0.2, -r * 0.2, r * 0.4, 0, Math.PI * 2);
-    ctx.fill();
     ctx.shadowBlur = 0;
 
     if (grabbed && grabbedBy) {
@@ -566,6 +559,143 @@ function roundRect(ctx, x, y, w, h, r) {
   ctx.lineTo(x, y + r);
   ctx.arcTo(x, y, x + r, y, r);
   ctx.closePath();
+}
+
+function drawJugHold(ctx, r, shapeVariant, color) {
+  ctx.beginPath();
+  if (shapeVariant === 0) {
+    ctx.ellipse(0, 0, r * 1.15, r * 0.92, 0, 0, Math.PI * 2);
+  } else if (shapeVariant === 1) {
+    ctx.moveTo(-r * 1.05, -r * 0.05);
+    ctx.bezierCurveTo(-r * 0.95, -r, r * 0.9, -r, r * 1.12, -r * 0.08);
+    ctx.bezierCurveTo(r * 0.9, r * 0.95, -r * 0.8, r * 0.88, -r * 1.05, -r * 0.05);
+  } else {
+    ctx.moveTo(-r, -r * 0.18);
+    ctx.bezierCurveTo(-r * 0.7, -r, r * 0.8, -r * 0.9, r * 1.05, -r * 0.1);
+    ctx.bezierCurveTo(r * 0.8, r * 0.95, -r * 0.85, r * 0.85, -r, -r * 0.18);
+  }
+  ctx.closePath();
+  ctx.fill();
+
+  ctx.fillStyle = 'rgba(255,255,255,0.22)';
+  ctx.beginPath();
+  ctx.ellipse(-r * 0.2, -r * 0.22, r * 0.42, r * 0.28, -0.4, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.strokeStyle = 'rgba(14, 50, 48, 0.45)';
+  ctx.lineWidth = 2;
+  ctx.beginPath();
+  ctx.arc(0, r * 0.08, r * 0.5, 0.15, Math.PI - 0.1);
+  ctx.stroke();
+}
+
+function drawBlockHold(ctx, r, shapeVariant, color) {
+  const width = shapeVariant === 0 ? r * 1.95 : r * 2.15;
+  const height = shapeVariant === 2 ? r * 1.4 : r * 1.7;
+  roundRect(ctx, -width / 2, -height / 2, width, height, r * 0.35);
+  ctx.fill();
+
+  ctx.strokeStyle = 'rgba(255,255,255,0.32)';
+  ctx.lineWidth = 2;
+  ctx.beginPath();
+  ctx.moveTo(-width * 0.34, -height * 0.1);
+  ctx.lineTo(width * 0.34, -height * 0.1);
+  ctx.moveTo(-width * 0.24, height * 0.22);
+  ctx.lineTo(width * 0.24, height * 0.22);
+  ctx.stroke();
+
+  ctx.fillStyle = 'rgba(255,255,255,0.16)';
+  roundRect(ctx, -width * 0.32, -height * 0.24, width * 0.3, height * 0.22, r * 0.18);
+  ctx.fill();
+}
+
+function drawCrimpHold(ctx, r, shapeVariant, color) {
+  const topWidth = shapeVariant === 0 ? r * 1.6 : r * 1.85;
+  const bottomWidth = shapeVariant === 2 ? r * 2.25 : r * 2.05;
+  const height = shapeVariant === 1 ? r * 1.1 : r * 0.9;
+
+  ctx.beginPath();
+  ctx.moveTo(-topWidth / 2, -height / 2);
+  ctx.lineTo(topWidth / 2, -height / 2);
+  ctx.lineTo(bottomWidth / 2, height / 2);
+  ctx.lineTo(-bottomWidth / 2, height / 2);
+  ctx.closePath();
+  ctx.fill();
+
+  ctx.strokeStyle = 'rgba(255,255,255,0.38)';
+  ctx.lineWidth = 2;
+  ctx.beginPath();
+  ctx.moveTo(-topWidth * 0.36, -height * 0.08);
+  ctx.lineTo(topWidth * 0.36, -height * 0.08);
+  ctx.stroke();
+
+  ctx.fillStyle = 'rgba(255,255,255,0.14)';
+  ctx.beginPath();
+  ctx.moveTo(-topWidth * 0.24, -height * 0.34);
+  ctx.lineTo(topWidth * 0.24, -height * 0.34);
+  ctx.lineTo(topWidth * 0.16, -height * 0.12);
+  ctx.lineTo(-topWidth * 0.16, -height * 0.12);
+  ctx.closePath();
+  ctx.fill();
+}
+
+function drawHalfMoonHold(ctx, r, shapeVariant, color) {
+  const innerCut = shapeVariant === 0 ? 0.55 : 0.42;
+  ctx.beginPath();
+  ctx.arc(0, 0, r * 1.12, Math.PI * 0.08, Math.PI * 0.92, true);
+  ctx.lineTo(-r * 1.12, r * 0.28);
+  ctx.quadraticCurveTo(0, r * 1.04, r * 1.12, r * 0.28);
+  ctx.closePath();
+  ctx.fill();
+
+  ctx.fillStyle = 'rgba(0,0,0,0.18)';
+  ctx.beginPath();
+  ctx.arc(0, r * 0.12, r * innerCut, Math.PI * 0.12, Math.PI * 0.88, true);
+  ctx.strokeStyle = 'rgba(90, 70, 0, 0.48)';
+  ctx.lineWidth = 2;
+  ctx.stroke();
+
+  ctx.fillStyle = 'rgba(255,255,255,0.18)';
+  ctx.beginPath();
+  ctx.arc(-r * 0.24, -r * 0.04, r * 0.26, 0, Math.PI * 2);
+  ctx.fill();
+}
+
+function drawVolumeHold(ctx, r, shapeVariant, color) {
+  const tipY = shapeVariant === 0 ? -r * 1.2 : -r * 1.02;
+  const baseY = r * 0.92;
+  const sideX = r * 1.32;
+
+  ctx.beginPath();
+  ctx.moveTo(0, tipY);
+  ctx.lineTo(sideX, -r * 0.22);
+  ctx.lineTo(r * 0.82, baseY);
+  ctx.lineTo(-r * 0.82, baseY);
+  ctx.lineTo(-sideX, -r * 0.22);
+  ctx.closePath();
+  ctx.fill();
+
+  ctx.fillStyle = 'rgba(255,255,255,0.16)';
+  ctx.beginPath();
+  ctx.moveTo(0, tipY);
+  ctx.lineTo(0, baseY * 0.86);
+  ctx.lineTo(-sideX * 0.55, -r * 0.08);
+  ctx.closePath();
+  ctx.fill();
+
+  ctx.strokeStyle = 'rgba(255,255,255,0.28)';
+  ctx.lineWidth = 2;
+  ctx.beginPath();
+  ctx.moveTo(0, tipY);
+  ctx.lineTo(0, baseY * 0.86);
+  ctx.moveTo(-sideX, -r * 0.22);
+  ctx.lineTo(sideX, -r * 0.22);
+  ctx.stroke();
+
+  ctx.fillStyle = '#e8d9ff';
+  ctx.beginPath();
+  ctx.arc(-r * 0.25, r * 0.1, r * 0.12, 0, Math.PI * 2);
+  ctx.arc(r * 0.28, r * 0.24, r * 0.12, 0, Math.PI * 2);
+  ctx.fill();
 }
 
 function getLimbColor(limbId) {

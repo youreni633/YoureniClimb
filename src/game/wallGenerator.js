@@ -224,16 +224,17 @@ function canPlaceHold(holds, x, y, minDistance) {
 }
 
 function createHold(x, y, typeKey, index) {
+  const type = HOLD_TYPES[typeKey];
   return {
     id: index,
     x: Math.round(x),
     y: Math.round(y),
-    type: HOLD_TYPES[typeKey],
+    type,
     typeKey,
     grabbed: false,
     grabbedBy: null,
     visited: false,
-    shapeVariant: randInt(0, 3),
-    rotation: randFloat(-0.3, 0.3),
+    shapeVariant: randInt(0, Math.max(0, (type.shapeVariants ?? 1) - 1)),
+    rotation: type.shape === 'volume' ? randFloat(-0.12, 0.12) : randFloat(-0.3, 0.3),
   };
 }
