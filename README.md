@@ -18,7 +18,7 @@ QWER Climb은 실내 볼더링(bouldering)을 모티브로 한 2D 웹 게임입�
 
 ### 사전 준비
 
-- [Node.js](https://nodejs.org/) 18 이상
+- [Node.js](https://nodejs.org/) 20.19 이상
 - npm (Node.js와 함께 설치됨)
 
 ### 설치 및 실행
@@ -47,7 +47,18 @@ npm run build
 npm run preview
 ```
 
-`dist/` 폴더에 빌드된 정적 파일이 생성됩니다. 아무 웹 서버에서 호스팅 가능합니다.
+`dist/` 폴더에 빌드된 정적 파일이 생성됩니다.
+
+### 프로덕션 서버 실행
+
+Azure Web App 같은 Node 호스팅 환경에서는 아래 명령으로 빌드 결과물을 서빙할 수 있습니다.
+
+```bash
+npm run build
+npm start
+```
+
+기본 포트는 `8080`이며, 배포 환경에서 `PORT`를 주입하면 그 값을 자동으로 사용합니다.
 
 ## 조작법
 
@@ -157,7 +168,47 @@ qwer-climb/
 - **HTML Canvas** (2D 렌더링)
 - **CSS** (UI 오버레이)
 - **Vite** (빌드 도구)
-- 외부 라이브러리 없음, 이미지 리소스 없음
+- **Express** (프로덕션 정적 파일 서빙)
+- 이미지 리소스 없음
+
+## Azure Web App 배포 가이드
+
+이 프로젝트는 정적 게임이지만, **Azure Web App에서는 Linux 기반 Node 앱**으로 배포하는 구성이 가장 단순합니다.
+
+### 추천 구성
+
+- **App Service OS**: Linux
+- **Runtime Stack**: Node 20 LTS
+- **배포 방식**: GitHub Actions 또는 Zip Deploy
+- **요금제 시작점**:
+  - 개발/테스트: `B1`
+  - 가벼운 실제 운영: `B1` 또는 `P0v3`
+- **시작 명령**: 기본값 사용 (`npm start`)
+
+### 왜 이 구성이 좋은가
+
+- Vite 결과물은 `dist/`에 정적으로 빌드됩니다.
+- `server.js`가 Azure가 요구하는 장기 실행 프로세스를 제공합니다.
+- `PORT` 환경 변수를 자동 사용하므로 App Service와 바로 맞물립니다.
+- 별도 Nginx 커스텀 컨테이너 없이도 바로 운영 가능합니다.
+
+### 권장 App Settings
+
+- `SCM_DO_BUILD_DURING_DEPLOYMENT=true`
+- `WEBSITE_NODE_DEFAULT_VERSION=~20`
+- 필요 시 `NODE_ENV=production`
+
+### 배포 흐름
+
+1. Azure App Service를 Linux / Node 20으로 생성합니다.
+2. GitHub 저장소를 Deployment Center에 연결하거나 Zip Deploy를 사용합니다.
+3. 배포 시 Azure가 `npm install`과 `npm run build`를 수행하게 설정합니다.
+4. 런타임에서는 `npm start`로 `server.js`를 실행합니다.
+
+### 참고
+
+- 순수 정적 사이트만 올릴 계획이라면 **Azure Static Web Apps**가 더 적합합니다.
+- 다만 사용 목표가 Web App이라면, 현재처럼 `build + express server` 조합이 가장 운영하기 쉽습니다.
 
 ## 향후 개선 아이디어
 
